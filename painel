@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="pt-PT" class="antialiased">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel de Análise de Portfólio | CES SUPPLY</title>
+    
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚙️</text></svg>">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@700&display=swap');
+        
+        :root {
+            --totvs-blue: #005FB9;
+            --totvs-blue-glow: rgba(0, 95, 185, 0.4);
+            --totvs-orange: #F6891F;
+            --totvs-dark: #292929;
+            --surface-bg: #f8fafc;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--surface-bg);
+            color: #1e293b;
+            letter-spacing: -0.01em;
+            overflow-x: hidden;
+        }
+
+        .glass {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+
+        /* Animações de Entrada */
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(15px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .card-animate {
+            animation: fadeInUp 0.5s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+            opacity: 0;
+        }
+
+        .chart-container {
+            position: relative;
+            width: 100%;
+            height: 400px; 
+        }
+
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+
+        .project-card {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border-width: 1px;
+        }
+
+        .project-card:hover {
+            transform: translateY(-3px) scale(1.005);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05), 0 10px 10px -5px rgba(0, 0, 0, 0.02);
+        }
+
+        .selected-card {
+            border-width: 2px !important;
+            box-shadow: 0 0 0 3px rgba(0, 95, 185, 0.15) !important;
+        }
+
+        /* Estilo para contadores */
+        .count-up {
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* HUD Center Content */
+        .hud-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Toasts Animados (Alertas Criativos) */
+        @keyframes slideInRight {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes fadeOut {
+            from { opacity: 1; }
+            to { opacity: 0; transform: translateY(10px); }
+        }
+        .toast-enter {
+            animation: slideInRight 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+        .toast-exit {
+            animation: fadeOut 0.3s forwards;
+        }
+
+        /* Brilho nos KPIs ativos */
+        .kpi-active {
+            border-color: transparent !important;
+            box-shadow: 0 0 0 2px var(--totvs-blue), 0 10px 25px -5px var(--totvs-blue-glow) !important;
+            transform: translateY(-2px);
+        }
+
+        /* CONFIGURAÇÃO DE IMPRESSÃO */
+        #print-area { display: none; }
+
+        @media print {
+            @page { size: A4 portrait; margin: 15mm; }
+            body { background: white !important; margin: 0; padding: 0; }
+            header, main, footer, #modal-print, #toast-container { display: none !important; }
+            #print-area { display: block !important; width: 100% !important; }
+            .print-page { display: block !important; width: 100% !important; page-break-before: always; break-before: page; padding-bottom: 20px; }
+            .print-page:first-child { page-break-before: avoid; break-before: avoid; }
+            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col relative">
+
+    <!-- Container de Notificações (Alertas Criativos) -->
+    <div id="toast-container" class="fixed bottom-6 right-6 z-[200] flex flex-col gap-3 pointer-events-none"></div>
+
+    <!-- Modal de Opções de Impressão -->
+    <div id="modal-print" class="fixed inset-0 z-[100] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 no-print">
+        <div class="bg-white rounded-3xl shadow-2xl max-w-sm w-full overflow-hidden animate-in zoom-in-95 duration-200">
+            <div class="p-6 text-center space-y-4">
+                <div class="w-16 h-16 bg-blue-50 text-totvs-blue rounded-full flex items-center justify-center mx-auto shadow-inner">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                </div>
+                <div>
+                    <h3 class="text-lg font-extrabold text-slate-900">Gerar Relatório PDF</h3>
+                    <p class="text-sm text-slate-500 font-medium">Escolha o formato de exportação</p>
+                </div>
+                <div class="grid gap-2">
+                    <button onclick="executePrint('selected')" class="w-full py-3 bg-totvs-blue text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-all active:scale-95">Apenas Cliente Selecionado</button>
+                    <button onclick="executePrint('all')" class="w-full py-3 bg-white border border-slate-200 text-slate-700 rounded-xl font-bold text-sm hover:bg-slate-50 transition-all active:scale-95">Todos os Projetos Filtrados</button>
+                    <button onclick="closePrintModal()" class="w-full py-2 text-slate-400 font-bold text-xs uppercase tracking-widest pt-2">Cancelar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="print-area"></div>
+
+    <header class="glass border-b border-slate-200 sticky top-0 z-50 no-print">
+        <div class="max-w-[1440px] mx-auto px-6 h-20 flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <div class="w-10 h-10 bg-[#292929] rounded-lg flex items-center justify-center text-white shadow-lg transition-transform hover:rotate-12">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                </div>
+                <div>
+                    <h1 class="text-xl font-extrabold tracking-tight text-[#292929]">Painel de Análise de <span class="text-totvs-blue">Portfólio</span></h1>
+                    <div id="file-name-display" class="hidden text-[10px] font-semibold text-totvs-blue bg-blue-50 px-2 py-0.5 rounded mt-0.5 uppercase tracking-widest border border-blue-100">Arquivo Carregado</div>
+                </div>
+            </div>
+            
+            <div class="flex items-center gap-3">
+                <!-- Botão Copiar Resumo -->
+                <button onclick="copyGlobalDashboard()" id="btn-copy-dashboard" class="hidden flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 hover:border-totvs-blue hover:text-totvs-blue rounded-xl text-slate-600 font-semibold text-sm transition-all duration-300 shadow-sm active:scale-95">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    <span class="hidden md:inline">Copiar Dados</span>
+                </button>
+
+                <input type="file" id="csvFileInput" accept=".csv" class="hidden">
+                <label for="csvFileInput" class="cursor-pointer group flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200 hover:border-blue-300 hover:bg-blue-50 rounded-xl text-slate-600 font-semibold text-sm transition-all duration-300 shadow-sm active:scale-95">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-slate-400 group-hover:text-totvs-blue transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    <span class="hidden sm:inline">Importar CSV</span>
+                </label>
+                
+                <button onclick="handlePrint()" class="flex items-center gap-2 px-5 py-2.5 bg-[#292929] hover:bg-black text-white rounded-xl font-semibold text-sm shadow-md transition-all duration-300 active:scale-95">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                    <span class="hidden sm:inline">Relatório PDF</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-grow max-w-[1440px] mx-auto px-6 py-10 w-full relative no-print">
+
+        <div id="empty-state" class="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-6 animate-in fade-in duration-700">
+            <div class="w-24 h-24 bg-slate-100 rounded-3xl flex items-center justify-center text-slate-300 shadow-inner group">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-12 h-12 group-hover:scale-110 transition-transform duration-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+            </div>
+            <div class="max-w-md space-y-2">
+                <h2 class="text-2xl font-extrabold text-[#292929] tracking-tight">Nenhum dado carregado</h2>
+                <p class="text-slate-500 font-medium leading-relaxed">
+                    Para começar, importe o arquivo CSV através do botão superior.
+                </p>
+            </div>
+        </div>
+
+        <div id="dashboard-content" class="hidden space-y-10">
+            <!-- KPIs -->
+            <section aria-label="Status do Portfólio">
+                <div class="flex items-center justify-between mb-6">
+                    <div class="flex items-center gap-3">
+                        <div id="kpi-title-indicator" class="w-1.5 h-6 bg-totvs-blue rounded-full shadow-lg shadow-blue-200 transition-colors duration-500"></div>
+                        <h3 id="kpi-main-title" class="text-xs font-bold text-slate-400 uppercase tracking-[0.2em] transition-colors duration-500">Visão Consolidada</h3>
+                    </div>
+                    
+                    <!-- Indicadores de Filtro e MODO FOCO -->
+                    <div class="flex items-center gap-3 transition-all duration-500 h-8">
+                        
+                        <!-- Modo Normal -->
+                        <div id="default-context-badge" class="flex items-center gap-2 px-3 py-1.5 bg-slate-100 border border-slate-200 rounded-full transition-all duration-300">
+                            <div class="w-1.5 h-1.5 rounded-full bg-slate-400"></div>
+                            <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Portfólio Completo</span>
+                        </div>
+
+                        <!-- Modo Foco Ativo (Aparece ao selecionar cliente) -->
+                        <div id="active-focus-badge" class="hidden items-center gap-2 px-4 py-1.5 bg-totvs-blue text-white rounded-full shadow-lg shadow-blue-200/50 animate-in fade-in slide-in-from-right-4">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 animate-[spin_3s_linear_infinite]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48 2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48 2.83-2.83"/></svg>
+                            <span class="text-[10px] font-black uppercase tracking-widest">Modo Foco: <span id="focus-client-name" class="text-blue-100 ml-1"></span></span>
+                        </div>
+
+                        <!-- Botão Limpar Filtros -->
+                        <button id="clear-selection-btn" onclick="resetSelection()" class="hidden items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-full text-[10px] font-bold uppercase tracking-wider transition-all border border-red-100 hover:border-red-600 hover:shadow-md active:scale-95 animate-in zoom-in-95">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                            Limpar Filtros
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 lg:grid-cols-6 gap-4" id="kpi-grid">
+                    <button id="btn-kpi-all" onclick="filterProjects('all')" class="kpi-active bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-xl transition-all text-left group active:scale-95">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="p-2 bg-slate-50 rounded-lg group-hover:bg-slate-200 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>
+                            <span id="kpi-total" class="text-2xl font-black text-slate-900 count-up">0</span>
+                        </div>
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Projetos</p>
+                    </button>
+                    <button id="btn-kpi-critical" onclick="filterProjects('critical')" title="Menos de 15% de horas restantes" class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm hover:shadow-xl hover:border-red-200 transition-all text-left group active:scale-95">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="p-2 bg-red-50 rounded-lg text-red-600 group-hover:bg-red-100 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
+                            <span id="kpi-critical" class="text-2xl font-black text-slate-900 count-up">0</span>
+                        </div>
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Alerta Crítico</p>
+                    </button>
+                    <button id="btn-kpi-golive" onclick="filterProjects('golive')" title="Go-Live nos próximos 90 dias" class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm hover:shadow-xl hover:border-cyan-200 transition-all text-left group active:scale-95">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="p-2 bg-cyan-50 rounded-lg text-cyan-600 group-hover:bg-cyan-100 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
+                            <span id="kpi-golive" class="text-2xl font-black text-slate-900 count-up">0</span>
+                        </div>
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Próximos Go-Live</p>
+                    </button>
+                    <button id="btn-kpi-attention" onclick="filterProjects('attention')" title="Atenção: saldo menor que 100 horas" class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm hover:shadow-xl hover:border-orange-200 transition-all text-left group active:scale-95">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="p-2 bg-orange-50 rounded-lg text-totvs-orange group-hover:bg-orange-100 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
+                            <span id="kpi-attention" class="text-2xl font-black text-slate-900 count-up">0</span>
+                        </div>
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Baixo Esforço</p>
+                    </button>
+                    <button id="btn-kpi-warning" onclick="filterProjects('warning')" title="Necessidade de replaneamento" class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm hover:shadow-xl hover:border-yellow-200 transition-all text-left group active:scale-95">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="p-2 bg-amber-50 rounded-lg text-amber-600 group-hover:bg-amber-100 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L22 22"/></svg></div>
+                            <span id="kpi-warning" class="text-2xl font-black text-slate-900 count-up">0</span>
+                        </div>
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Replaneamento</p>
+                    </button>
+                    <button id="btn-kpi-healthy" onclick="filterProjects('healthy')" title="Projetos saudáveis" class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm hover:shadow-xl hover:border-emerald-200 transition-all text-left group active:scale-95">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="p-2 bg-emerald-50 rounded-lg text-emerald-600 group-hover:bg-emerald-100 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+                            <span id="kpi-healthy" class="text-2xl font-black text-slate-900 count-up">0</span>
+                        </div>
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Saudáveis</p>
+                    </button>
+                </div>
+            </section>
+
+            <!-- Financeiro -->
+            <section aria-label="Indicadores Financeiros" class="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden animate-in slide-in-from-bottom-4 duration-700">
+                <div class="px-8 py-4 border-b border-slate-50 flex items-center justify-between bg-slate-50/50">
+                    <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Indicadores de Custo Operacional</h3>
+                    <div class="flex items-center gap-1.5"><div class="w-1.5 h-1.5 rounded-full bg-totvs-blue animate-pulse"></div><span class="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">Análise Financeira Ativa</span></div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-slate-100 text-center relative">
+                    <div class="p-8 group cursor-default">
+                        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2 group-hover:text-slate-600 transition-colors">Custo Total Planejado</span>
+                        <p id="total-cost-planned" class="text-3xl font-black text-[#292929] count-up transition-transform group-hover:scale-105">R$ 0,00</p>
+                    </div>
+                    <div class="p-8 group cursor-default">
+                        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2 group-hover:text-slate-600 transition-colors">Total Realizado</span>
+                        <p id="total-cost-realized" class="text-3xl font-black text-slate-500 count-up transition-transform group-hover:scale-105">R$ 0,00</p>
+                    </div>
+                    <div class="p-8 bg-blue-50/30 group cursor-default">
+                        <span class="text-[10px] font-bold text-totvs-blue uppercase tracking-wider block mb-2 group-hover:text-blue-600 transition-colors">Custo Total Restante</span>
+                        <p id="total-cost-remaining" class="text-3xl font-black text-totvs-blue count-up transition-transform group-hover:scale-105">R$ 0,00</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Grid de Dados -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-10">
+                <div class="lg:col-span-7 bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col transition-all duration-500">
+                    <div class="mb-8">
+                        <h3 class="text-xl font-extrabold text-[#292929] tracking-tight">Esforço Operacional</h3>
+                        <p class="text-sm text-slate-400 font-medium">Consumo comparativo de horas</p>
+                    </div>
+                    <div class="chart-container flex-grow">
+                        <canvas id="effortChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="lg:col-span-5 bg-white rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col h-[750px] overflow-hidden">
+                    <div class="p-8 border-b border-slate-50 space-y-4">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-xl font-extrabold text-[#292929] tracking-tight">Status Detalhado</h3>
+                            <span id="listFilterLabel" class="text-[10px] font-bold px-4 py-1.5 bg-totvs-blue text-white rounded-full uppercase tracking-widest shadow-lg shadow-blue-100 max-w-[200px] truncate text-center block transition-all duration-500">Todos</span>
+                        </div>
+                        <div class="relative group">
+                            <input type="text" id="searchInput" placeholder="Filtrar por nome ou código..." class="w-full pl-11 pr-11 py-3.5 bg-slate-50 border border-transparent rounded-2xl text-sm font-medium focus:ring-2 focus:ring-blue-400 focus:bg-white outline-none text-slate-600 transition-all shadow-inner">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 absolute left-4 top-3.5 text-slate-400 group-focus-within:text-totvs-blue transition-colors pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                            <!-- Limpar Busca Btn -->
+                            <button id="clear-search-btn" onclick="clearSearch()" class="hidden absolute right-3 top-2.5 p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-all" title="Limpar pesquisa">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="projectList" class="flex-col space-y-4 overflow-y-auto custom-scrollbar p-8 flex-grow"></div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="no-print mt-auto border-t border-slate-100 py-10 text-center bg-white">
+        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-[0.3em]">Gestão Estratégica de Projetos | CES SUPPLY</p>
+    </footer>
+
+    <script>
+        Chart.register(ChartDataLabels);
+
+        let projectsData = [];
+        let currentFilter = 'all';
+        let selectedProjectId = null;
+        let myChart = null;
+        let pieCharts = {};
+
+        const formatCurrency = (val) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
+
+        // Sistema de Toasts Animados
+        function showToast(title, message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = 'toast-enter bg-white/95 backdrop-blur-md border border-slate-100 shadow-2xl rounded-2xl p-4 flex items-start gap-4 pointer-events-auto min-w-[300px] max-w-sm';
+            
+            let icon = '';
+            let iconBg = '';
+            if(type === 'success') {
+                icon = '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>';
+                iconBg = 'bg-emerald-100 text-emerald-600';
+            } else if(type === 'info') {
+                icon = '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>';
+                iconBg = 'bg-blue-100 text-totvs-blue';
+            } else if(type === 'warning') {
+                icon = '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>';
+                iconBg = 'bg-orange-100 text-totvs-orange';
+            }
+
+            toast.innerHTML = `
+                <div class="p-2 rounded-full ${iconBg} shrink-0">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">${icon}</svg>
+                </div>
+                <div>
+                    <h4 class="font-bold text-slate-800 text-sm">${title}</h4>
+                    <p class="text-xs font-medium text-slate-500 mt-0.5">${message}</p>
+                </div>
+            `;
+            
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.classList.remove('toast-enter');
+                toast.classList.add('toast-exit');
+                setTimeout(() => toast.remove(), 300);
+            }, 3500);
+        }
+
+        // Função para copiar para a área de transferência com feedback
+        function copyToClipboard(text, successTitle = "Copiado!", successMessage = "Dados copiados para a área de transferência.") {
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(() => showToast(successTitle, successMessage, 'success'));
+            } else {
+                const textArea = document.createElement("textarea");
+                textArea.value = text;
+                textArea.style.position = "fixed";
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    showToast(successTitle, successMessage, 'success');
+                } catch (err) {
+                    showToast("Erro", "Não foi possível copiar.", 'warning');
+                }
+                document.body.removeChild(textArea);
+            }
+        }
+
+        function copyGlobalDashboard() {
+            if(projectsData.length === 0) return;
+            const t = document.getElementById('kpi-total').innerText;
+            const c = document.getElementById('kpi-critical').innerText;
+            const g = document.getElementById('kpi-golive').innerText;
+            const a = document.getElementById('kpi-attention').innerText;
+            
+            const cp = document.getElementById('total-cost-planned').innerText;
+            const cr = document.getElementById('total-cost-realized').innerText;
+            const crem = document.getElementById('total-cost-remaining').innerText;
+            
+            const text = `🎯 RESUMO DE PORTFÓLIO | CES SUPPLY\n\n` +
+                         `📊 INDICADORES ATUAIS:\n` +
+                         `- Total de Projetos: ${t}\n` +
+                         `- Alertas Críticos: ${c}\n` +
+                         `- Próximos Go-Live: ${g}\n` +
+                         `- Atenção (Baixo Esforço): ${a}\n\n` +
+                         `💰 FINANCEIRO CONSOLIDADO:\n` +
+                         `- Planeado: ${cp}\n` +
+                         `- Realizado: ${cr}\n` +
+                         `- Restante: ${crem}\n\n` +
+                         `Extraído em: ${new Date().toLocaleString('pt-BR')}`;
+            
+            copyToClipboard(text, "Resumo Copiado", "KPIs globais copiados com sucesso!");
+        }
+
+        function copyProjectDetails(projectId) {
+            const p = projectsData.find(proj => proj.id === projectId);
+            if (!p) return;
+            const hoursPerc = p.effortTotal > 0 ? ((p.effortConsumed / p.effortTotal) * 100).toFixed(1) : 0;
+            
+            const text = `📁 PROJETO: ${p.name}\n` +
+                         `Código: ${p.codigo || 'N/A'}\n` +
+                         `Status: ${p.statusText}\n` +
+                         `Go-Live: ${p.goLiveStr || 'Não definido'}\n\n` +
+                         `⏱ ESFORÇO (${hoursPerc}% Consumido):\n` +
+                         `- Consumido: ${p.effortConsumed}h\n` +
+                         `- Restante: ${p.effortRemaining}h\n` +
+                         `- Total: ${p.effortTotal}h\n\n` +
+                         `💰 CUSTO:\n` +
+                         `- Planeado: ${formatCurrency(p.costPlanned)}\n` +
+                         `- Restante: ${formatCurrency(p.costRemaining)}\n` +
+                         `- Realizado: ${formatCurrency(p.costRealized)}\n`;
+            
+            copyToClipboard(text, "Projeto Copiado", `${p.name} copiado com sucesso!`);
+        }
+
+        function animateValue(id, start, end, duration, isCurrency = false) {
+            const obj = document.getElementById(id);
+            if (!obj) return;
+            let startTimestamp = null;
+            const step = (timestamp) => {
+                if (!startTimestamp) startTimestamp = timestamp;
+                const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+                const current = progress * (end - start) + start;
+                obj.innerHTML = isCurrency ? formatCurrency(current) : Math.floor(current).toString();
+                if (progress < 1) window.requestAnimationFrame(step);
+            };
+            window.requestAnimationFrame(step);
+        }
+
+        function handlePrint() {
+            if (projectsData.length === 0) return;
+            if (selectedProjectId) document.getElementById('modal-print').classList.remove('hidden');
+            else executePrint('all');
+        }
+
+        function closePrintModal() { document.getElementById('modal-print').classList.add('hidden'); }
+
+        function executePrint(mode) {
+            closePrintModal();
+            const printArea = document.getElementById('print-area');
+            printArea.innerHTML = '';
+            const originalTitle = document.title;
+            document.title = " "; 
+
+            let dataToPrint = [];
+            if (mode === 'selected') dataToPrint = [projectsData.find(p => p.id === selectedProjectId)];
+            else {
+                const term = document.getElementById('searchInput').value.toLowerCase();
+                dataToPrint = projectsData.filter(p => (currentFilter === 'all' || p.statusType === currentFilter) && (p.name.toLowerCase().includes(term) || p.codigo.toLowerCase().includes(term)));
+            }
+
+            dataToPrint.forEach(p => {
+                const hoursPerc = p.effortTotal > 0 ? Math.min(100, (p.effortConsumed / p.effortTotal) * 100) : 0;
+                const page = document.createElement('div');
+                page.className = 'print-page';
+                page.innerHTML = `
+                    <div style="border-bottom: 4px solid var(--totvs-blue); padding-bottom: 20px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: flex-end;">
+                        <div>
+                            <h2 style="font-size: 26pt; font-weight: 900; color: var(--totvs-blue); margin: 0; text-transform: uppercase;">${p.name}</h2>
+                            <p style="font-size: 10pt; font-weight: 700; color: #94a3b8; margin: 5px 0 0 0; text-transform: uppercase; letter-spacing: 3px;">Relatório de Projeto | CES SUPPLY</p>
+                        </div>
+                        <div style="background: #1e293b; color: white; padding: 10px 20px; border-radius: 8px; font-weight: 800; font-size: 10pt; text-transform: uppercase;">${p.statusText}</div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 40px; margin-bottom: 40px;">
+                        <div style="display: flex; flex-direction: column; gap: 20px;">
+                            <div><span style="font-size: 8pt; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Projeto PSA</span><div style="font-size: 14pt; font-weight: 700; border-left: 3px solid #e2e8f0; padding-left: 15px; margin-top: 5px;">${p.projectName || '---'}</div></div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
+                                <div><span style="font-size: 8pt; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Código</span><div style="font-size: 12pt; font-weight: 700; color: var(--totvs-blue);">${p.codigo || '---'}</div></div>
+                                <div><span style="font-size: 8pt; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Data Go-Live</span><div style="font-size: 12pt; font-weight: 700;">${p.goLiveStr || '---'}</div></div>
+                            </div>
+                        </div>
+                        <div style="background: #f8fafc; border: 1px solid #f1f5f9; padding: 30px; border-radius: 20px; text-align: center;">
+                            <span style="font-size: 8pt; font-weight: 900; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px;">Esforço Operacional</span>
+                            <div style="font-size: 38pt; font-weight: 900; color: var(--totvs-blue); margin: 10px 0;">${hoursPerc.toFixed(1)}%</div>
+                            <div style="font-size: 9pt; font-weight: 700; color: #64748b;">Consumo: ${p.effortConsumed}h / ${p.effortTotal}h</div>
+                        </div>
+                    </div>
+                    <div style="background: rgba(0,95,185,0.03); border: 1px solid #e2e8f0; padding: 35px; border-radius: 25px; display: flex; flex-direction: column; gap: 25px;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px; text-align: center;">
+                            <div><span style="font-size: 9pt; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Investimento Planejado</span><div style="font-size: 18pt; font-weight: 900; margin-top: 5px;">${formatCurrency(p.costPlanned)}</div></div>
+                            <div><span style="font-size: 9pt; font-weight: 800; color: var(--totvs-blue); text-transform: uppercase;">Custo Restante</span><div style="font-size: 18pt; font-weight: 900; color: var(--totvs-blue); margin-top: 5px;">${formatCurrency(p.costRemaining)}</div></div>
+                        </div>
+                        <div style="background: white; border: 2px solid #f1f5f9; padding: 20px; border-radius: 16px; text-align: center; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
+                            <span style="font-size: 9pt; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Custo Total Realizado</span>
+                            <div style="font-size: 22pt; font-weight: 900; color: #475569; margin-top: 5px;">${formatCurrency(p.costRealized)}</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 60px; border-top: 1px solid #f1f5f9; display: flex; justify-content: space-between; padding-top: 20px; opacity: 0.5;">
+                        <span style="font-size: 8pt; font-weight: 800; text-transform: uppercase;">Insight Portfólio Management</span>
+                        <span style="font-size: 8pt; font-weight: 800; text-transform: uppercase;">Extraído em: ${new Date().toLocaleString('pt-BR')}</span>
+                    </div>
+                `;
+                printArea.appendChild(page);
+            });
+
+            setTimeout(() => { window.print(); document.title = originalTitle; }, 600);
+        }
+
+        document.getElementById('csvFileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            document.getElementById('file-name-display').textContent = file.name;
+            document.getElementById('file-name-display').classList.remove('hidden');
+            document.getElementById('btn-copy-dashboard').classList.remove('hidden'); // Mostra botão de cópia global
+            document.getElementById('empty-state').classList.add('hidden');
+            document.getElementById('dashboard-content').classList.remove('hidden');
+            document.getElementById('dashboard-content').classList.add('animate-in', 'fade-in', 'slide-in-from-bottom-8', 'duration-1000');
+            Papa.parse(file, { header: true, skipEmptyLines: true, encoding: "ISO-8859-1", complete: function(r) { processCSVData(r.data); if (!myChart) initChart(); else applyFilters(); showToast("Importação Concluída", `Arquivo ${file.name} carregado com sucesso.`); } });
+        });
+
+        function processCSVData(dataArray) {
+            projectsData = []; selectedProjectId = null;
+            dataArray.forEach((row, index) => {
+                const keys = Object.keys(row);
+                const findK = (obj, inc, exc = []) => Object.keys(obj).find(k => {
+                    const n = s => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+                    const nk = n(k); return inc.every(i => nk.includes(i)) && !exc.some(e => nk.includes(e));
+                });
+                const cliente = row[findK(row, ['cliente'])] || row[findK(row, ['nome'])] || '';
+                if (!cliente) return;
+                const parseN = (v) => { if(!v) return 0; let c = v.toString().replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.'); return parseFloat(c) || 0; };
+                const eT = findK(row, ['esfor', 'horas'], ['conclu', 'restant', 'reais', 'estimad']);
+                const eC = findK(row, ['esfor', 'conclu']);
+                const eR = findK(row, ['esfor', 'restant']);
+                const goLive = row[keys[25]] || '';
+                let rawStatus = (row[findK(row, ['status'])] || 'Ativo');
+                if (rawStatus.includes('Execu')) rawStatus = 'Em Execução';
+                let diff = null;
+                if (goLive) {
+                    let pts = goLive.split(' ')[0].split(/[-/]/);
+                    if (pts.length === 3) {
+                        let dObj = pts[0].length === 4 ? new Date(pts[0], pts[1]-1, pts[2]) : new Date(pts[2], pts[1]-1, pts[0]);
+                        if (!isNaN(dObj.getTime())) diff = (dObj.setHours(0,0,0,0) - (new Date()).setHours(0,0,0,0)) / (1000*60*60*24);
+                    }
+                }
+                
+                // Adicionadas cores específicas para a barra de progresso (bar) e cores hexadecimais (hex) para o gráfico circular
+                let type = 'healthy';
+                let theme = { bg: 'bg-emerald-50/50', border: 'border-emerald-100', text: 'text-emerald-700', badge: 'bg-emerald-100 text-emerald-800', sel: 'border-emerald-500', bar: 'bg-emerald-500', hex: '#10b981' };
+                if (rawStatus.toLowerCase().includes('replane')) { type = 'warning'; theme = { bg: 'bg-amber-50/50', border: 'border-amber-100', text: 'text-amber-700', badge: 'bg-amber-100 text-amber-800', sel: 'border-amber-500', bar: 'bg-amber-500', hex: '#f59e0b' }; }
+                else if (parseN(row[eT]) > 0 && parseN(row[eR]) <= (parseN(row[eT]) * 0.15)) { type = 'critical'; theme = { bg: 'bg-red-50/50', border: 'border-red-100', text: 'text-red-700', badge: 'bg-red-100 text-red-800', sel: 'border-red-500', alert: true, bar: 'bg-red-500', hex: '#ef4444' }; }
+                else if (diff !== null && diff <= 90) { type = 'golive'; theme = { bg: 'bg-cyan-50/50', border: 'border-cyan-100', text: 'text-cyan-700', badge: 'bg-cyan-100 text-cyan-800', sel: 'border-cyan-500', bar: 'bg-cyan-500', hex: '#06b6d4' }; }
+                else if (parseN(row[eT]) > 0 && parseN(row[eR]) < 100) { type = 'attention'; theme = { bg: 'bg-orange-50/50', border: 'border-orange-100', text: 'text-totvs-orange', badge: 'bg-orange-100 text-totvs-orange', sel: 'border-orange-500', alert: true, bar: 'bg-orange-500', hex: '#f97316' }; }
+                
+                projectsData.push({ id: 'p' + index, name: cliente, projectName: row[keys[7]] || '', codigo: row[keys[4]] || '', goLiveStr: goLive, statusType: type, statusText: rawStatus, effortTotal: parseN(row[eT]), effortConsumed: parseN(row[eC]), effortRemaining: parseN(row[eR]), costPlanned: parseN(row[keys[20]]), costRealized: parseN(row[keys[21]]), costRemaining: parseN(row[keys[22]]), colorTheme: theme });
+            });
+            updateKPIs(); applyFilters();
+        }
+
+        function initChart() {
+            const ctx = document.getElementById('effortChart').getContext('2d');
+            myChart = new Chart(ctx, { 
+                type: 'bar', 
+                data: getChartData([]), 
+                options: { 
+                    indexAxis: 'y', 
+                    responsive: true, 
+                    maintainAspectRatio: false, 
+                    animation: { duration: 1500, easing: 'easeOutQuart' },
+                    scales: { x: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { font: { weight: '600' } } }, y: { grid: { display: false }, ticks: { font: { weight: 'bold', size: 11 } } } }, 
+                    plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, font: { weight: 'bold' } } }, datalabels: { display: false } } 
+                } 
+            });
+        }
+
+        function getChartData(arr) {
+            const valid = arr.filter(p => p.effortTotal > 0);
+            return { labels: valid.map(p => p.name.length > 20 ? p.name.substring(0,20)+'...' : p.name), datasets: [{ label: 'Consumidas', data: valid.map(p => p.effortConsumed), backgroundColor: '#cbd5e1', borderRadius: 4 }, { label: 'Restantes', data: valid.map(p => p.effortRemaining), backgroundColor: '#005FB9', borderRadius: 4 }] };
+        }
+
+        function renderProjectList(arr) {
+            const list = document.getElementById('projectList');
+            list.innerHTML = arr.length ? '' : '<div class="text-center py-12 text-slate-400 font-bold uppercase tracking-widest text-xs animate-pulse">Sem Resultados</div>';
+            arr.forEach((p, index) => {
+                const isSelected = selectedProjectId === p.id;
+                const card = document.createElement('div');
+                const hoursPerc = p.effortTotal > 0 ? Math.min(100, (p.effortConsumed / p.effortTotal) * 100) : 0;
+                
+                // Animação de alerta para os críticos ou de atenção
+                const alertPulse = p.colorTheme.alert && !isSelected ? 'animate-pulse' : '';
+
+                card.className = `project-card relative border-2 ${isSelected ? p.colorTheme.sel : p.colorTheme.border} ${p.colorTheme.bg} p-6 rounded-3xl cursor-pointer card-animate ${isSelected ? 'selected-card' : ''} ${selectedProjectId && !isSelected ? 'no-print opacity-20 blur-[1px]' : ''}`;
+                card.style.animationDelay = `${index * 0.05}s`;
+                
+                card.onclick = () => selectProject(p.id);
+                card.innerHTML = `
+                    <div class="flex flex-col gap-4">
+                        <div class="flex justify-between items-start">
+                            <div class="space-y-1">
+                                <span class="px-2.5 py-1 rounded-full text-[8px] font-black uppercase tracking-widest shadow-sm ${p.colorTheme.badge} ${alertPulse}">${p.statusText}</span>
+                                <h4 class="font-extrabold text-[#292929] text-base leading-tight uppercase mr-8">${p.name}</h4>
+                            </div>
+                            <div class="text-right flex flex-col items-end relative">
+                                <!-- Botão Copiar Individual -->
+                                <button onclick="copyProjectDetails('${p.id}'); event.stopPropagation();" class="absolute -top-2 -right-2 p-2 text-slate-400 hover:text-totvs-blue hover:bg-white rounded-full transition-all active:scale-90" title="Copiar Dados">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                </button>
+                                
+                                <div class="flex items-center gap-1.5 mt-5">
+                                    <span class="text-[9px] font-bold text-slate-400 uppercase">Consumido:</span>
+                                    <span class="text-xs font-black text-slate-800">${p.effortConsumed}h</span>
+                                </div>
+                                <div class="flex items-center gap-1.5">
+                                    <span class="text-[9px] font-bold text-totvs-blue uppercase">Restante:</span>
+                                    <span class="text-xs font-black text-totvs-blue">${p.effortRemaining}h</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                             <!-- NOVO: Copiar Código do Projeto -->
+                             <div class="flex items-center gap-2">
+                                <span class="text-[9px] font-bold text-slate-400 uppercase">Código</span>
+                                <button onclick="copyToClipboard('${p.codigo}', 'Código Copiado!', 'Código ${p.codigo || ''} copiado com sucesso.'); event.stopPropagation();" class="flex items-center gap-1.5 px-2 py-0.5 -ml-2 rounded-md hover:bg-white/60 transition-colors group/code" title="Copiar Código">
+                                    <span class="text-xs font-mono font-bold ${p.colorTheme.text}">${p.codigo || '---'}</span>
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-slate-400 opacity-0 group-hover/code:opacity-100 group-hover/code:text-totvs-blue transition-all" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                </button>
+                             </div>
+                             <div class="flex items-center justify-end gap-2 text-[9px] font-bold text-slate-400 uppercase">Go Live: <span class="text-slate-800 font-bold">${p.goLiveStr || '---'}</span></div>
+                        </div>
+                        <div class="space-y-2">
+                            <div class="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-tighter"><span>Esforço Operacional</span><span>${hoursPerc.toFixed(1)}%</span></div>
+                            <div class="w-full h-2 bg-slate-200/50 rounded-full overflow-hidden border border-white/20">
+                                <!-- A barra progressiva agora adota a cor específica do status de consumo do projeto -->
+                                <div class="h-full ${p.colorTheme.bar} transition-all duration-1000" style="width: 0%" id="progress-${p.id}"></div>
+                            </div>
+                        </div>
+                        ${isSelected ? `
+                        <div class="pt-5 mt-2 border-t border-black/5 grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in slide-in-from-top-4 duration-500">
+                            <div class="space-y-4">
+                                <div class="bg-white/70 p-5 rounded-[1.5rem] space-y-4 shadow-inner border border-white">
+                                    <div class="border-b border-black/5 pb-2">
+                                        <span class="text-[9px] font-bold text-slate-400 uppercase block mb-1">Nome do Projeto</span>
+                                        <span class="text-xs font-bold text-slate-800 truncate block">${p.projectName || '---'}</span>
+                                    </div>
+                                    <div class="space-y-3">
+                                        <div class="flex justify-between items-start gap-4">
+                                            <div class="flex-1 text-center"><span class="text-[8px] font-bold text-slate-400 uppercase block mb-0.5">Planejado</span><span class="text-xs font-black text-slate-900 block">${formatCurrency(p.costPlanned)}</span></div>
+                                            <div class="flex-1 text-center"><span class="text-[8px] font-bold ${p.colorTheme.text} uppercase block mb-0.5">Restante</span><span class="text-xs font-black ${p.colorTheme.text} block">${formatCurrency(p.costRemaining)}</span></div>
+                                        </div>
+                                        <div class="bg-white/90 p-3 rounded-2xl border border-black/5 text-center shadow-sm">
+                                            <span class="text-[8px] font-bold text-slate-400 uppercase block mb-0.5">Custo Total Realizado</span>
+                                            <span class="text-sm font-black text-slate-700 block">${formatCurrency(p.costRealized)}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <button onclick="generateTextSummary('${p.id}'); event.stopPropagation();" class="no-print w-full py-3.5 bg-[#292929] hover:bg-totvs-blue text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] transition-all shadow-xl active:scale-95">Salvar Em TXT</button>
+                            </div>
+                            <div class="flex flex-col items-center justify-center relative">
+                                <div class="w-36 h-36 relative transition-transform hover:scale-110 duration-500">
+                                    <canvas id="pie-chart-${p.id}"></canvas>
+                                    <div class="hud-center">
+                                        <!-- O texto central reflete a cor dinâmica -->
+                                        <div class="text-sm ${p.colorTheme.text} font-black animate-pulse">${p.effortConsumed}h</div>
+                                        <div class="text-[8px] text-slate-400 font-bold uppercase tracking-tighter">Consumo</div>
+                                    </div>
+                                </div>
+                                <p class="text-[9px] font-bold text-slate-400 uppercase mt-4 tracking-widest">Balanço de Esforço</p>
+                            </div>
+                        </div>` : ''}
+                    </div>
+                `;
+                list.appendChild(card);
+                
+                setTimeout(() => {
+                    const bar = document.getElementById(`progress-${p.id}`);
+                    if (bar) bar.style.width = `${hoursPerc}%`;
+                }, 100);
+            });
+        }
+
+        function initPieChart(projectId) {
+            const p = projectsData.find(proj => proj.id === projectId);
+            const canvas = document.getElementById(`pie-chart-${projectId}`);
+            if (!canvas) return;
+            if (pieCharts[projectId]) pieCharts[projectId].destroy();
+            
+            // O gráfico circular agora usa também as cores dinâmicas para o Consumido, deixando o Restante a cinzento
+            pieCharts[projectId] = new Chart(canvas, { 
+                type: 'doughnut', 
+                data: { 
+                    labels: ['Consumido', 'Restante'], 
+                    datasets: [{ 
+                        data: [p.effortConsumed, Math.max(0, p.effortRemaining)], 
+                        backgroundColor: [p.colorTheme.hex, '#cbd5e1'], 
+                        borderWidth: 0, 
+                        hoverOffset: 15, 
+                        borderRadius: 5 
+                    }] 
+                }, 
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false, 
+                    cutout: '80%', 
+                    animation: { duration: 2000, animateRotate: true, animateScale: true, easing: 'easeOutElastic' },
+                    plugins: { legend: { display: false }, datalabels: { display: false } } 
+                } 
+            });
+        }
+
+        function generateTextSummary(projectId) {
+            const p = projectsData.find(proj => proj.id === projectId);
+            if (!p) return;
+            const content = `RELATÓRIO DE PROJETO\n\nCliente: ${p.name}\nNome do projeto: ${p.projectName || '---'}\nCódigo: ${p.codigo || '---'}\n\nStatus: ${p.statusText}\nEsforço Planejado: ${p.effortTotal}h\nEsforço Consumido: ${p.effortConsumed}h\nSaldo: ${p.effortRemaining}h\n\nExtraído em: ${new Date().toLocaleString('pt-BR')}`;
+            const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `Relatorio_${p.name.replace(/\s+/g, '_')}.txt`;
+            link.click();
+            showToast("Relatório Baixado", `O arquivo TXT de ${p.name} foi gerado.`, 'info');
+        }
+
+        function selectProject(id) { 
+            selectedProjectId = (selectedProjectId === id) ? null : id; 
+            updateKPIs(); 
+            applyFilters(); 
+            updateLabelDynamic(); 
+            if (selectedProjectId) setTimeout(() => initPieChart(selectedProjectId), 100); 
+        }
+
+        function clearSearch() {
+            document.getElementById('searchInput').value = '';
+            applyFilters();
+        }
+
+        function resetSelection() { 
+            selectedProjectId = null; 
+            updateKpiStyling('all');
+            currentFilter = 'all'; 
+            document.getElementById('searchInput').value = ''; 
+            
+            updateLabelDynamic(); 
+            updateKPIs(); 
+            applyFilters(); 
+            showToast("Visão Restaurada", "Todos os filtros foram removidos.", "info");
+        }
+
+        function updateKpiStyling(filterType) {
+            document.querySelectorAll('#kpi-grid button').forEach(btn => btn.classList.remove('kpi-active'));
+            const btn = document.getElementById(`btn-kpi-${filterType}`);
+            if(btn) btn.classList.add('kpi-active');
+        }
+
+        function updateLabelDynamic() {
+            const label = document.getElementById('listFilterLabel');
+            const colors = { all: '#005FB9', critical: '#ef4444', golive: '#06b6d4', attention: '#F6891F', warning: '#fbbf24', healthy: '#10b981' };
+            const targetColor = selectedProjectId ? '#005FB9' : (colors[currentFilter] || '#005FB9');
+            label.style.backgroundColor = targetColor;
+            label.style.color = '#ffffff';
+            if (selectedProjectId) { const project = projectsData.find(p => p.id === selectedProjectId); label.textContent = project ? project.name : "Selecionado"; }
+            else { const labels = { all: 'Todos', critical: 'Alerta Crítico', golive: 'Go Live', attention: 'Baixo Esforço', warning: 'Replaneamento', healthy: 'Saudáveis' }; label.textContent = labels[currentFilter] || 'Todos'; }
+        }
+
+        function updateKPIs() {
+            let data = selectedProjectId ? [projectsData.find(p => p.id === selectedProjectId)] : projectsData;
+            
+            // Controle da Interface do "Modo Foco"
+            const defaultBadge = document.getElementById('default-context-badge');
+            const focusBadge = document.getElementById('active-focus-badge');
+            const focusName = document.getElementById('focus-client-name');
+            const mainTitle = document.getElementById('kpi-main-title');
+            const mainIndicator = document.getElementById('kpi-title-indicator');
+            
+            if (selectedProjectId && data.length > 0) {
+                defaultBadge.classList.add('hidden');
+                focusBadge.classList.remove('hidden');
+                focusBadge.classList.add('flex');
+                focusName.textContent = data[0].name;
+                
+                mainTitle.textContent = "Análise Individual";
+                mainTitle.classList.replace('text-slate-400', 'text-totvs-blue');
+                mainIndicator.classList.add('animate-pulse');
+            } else {
+                defaultBadge.classList.remove('hidden');
+                focusBadge.classList.add('hidden');
+                focusBadge.classList.remove('flex');
+                
+                mainTitle.textContent = "Visão Consolidada";
+                mainTitle.classList.replace('text-totvs-blue', 'text-slate-400');
+                mainIndicator.classList.remove('animate-pulse');
+            }
+            
+            // Atualização dos Números dos KPIs
+            const getC = (t) => data.filter(p => p.statusType === t).length;
+            animateValue("kpi-total", 0, data.length, 800);
+            animateValue("kpi-critical", 0, getC('critical'), 800);
+            animateValue("kpi-golive", 0, getC('golive'), 800);
+            animateValue("kpi-attention", 0, getC('attention'), 800);
+            animateValue("kpi-warning", 0, getC('warning'), 800);
+            animateValue("kpi-healthy", 0, getC('healthy'), 800);
+
+            let sumP = 0, sumR = 0, sumRem = 0;
+            data.forEach(p => { sumP += p.costPlanned; sumR += p.costRealized; sumRem += p.costRemaining; });
+            
+            animateValue("total-cost-planned", 0, sumP, 1200, true);
+            animateValue("total-cost-realized", 0, sumR, 1200, true);
+            animateValue("total-cost-remaining", 0, sumRem, 1200, true);
+        }
+
+        function filterProjects(t) { 
+            selectedProjectId = null; 
+            currentFilter = t; 
+            updateKpiStyling(t);
+            updateLabelDynamic(); 
+            
+            const labels = { all: 'Todos os Projetos', critical: 'Alerta Crítico', golive: 'Go Live', attention: 'Baixo Esforço', warning: 'Replaneamento', healthy: 'Saudáveis' };
+            showToast("Filtro Aplicado", `A exibir: ${labels[t] || 'Projetos'}`, 'info');
+
+            updateKPIs(); 
+            applyFilters(); 
+        }
+
+        function applyFilters() { 
+            const searchInput = document.getElementById('searchInput');
+            const term = searchInput.value.toLowerCase(); 
+            
+            // Lógica do botão de limpar no input de pesquisa
+            const clearSearchBtn = document.getElementById('clear-search-btn');
+            if(term.length > 0) clearSearchBtn.classList.remove('hidden');
+            else clearSearchBtn.classList.add('hidden');
+
+            const filtered = projectsData.filter(p => (currentFilter === 'all' || p.statusType === currentFilter) && (p.name.toLowerCase().includes(term) || p.codigo.toLowerCase().includes(term))); 
+            renderProjectList(filtered); 
+            
+            if (myChart) { 
+                let d = getChartData(selectedProjectId ? [projectsData.find(p => p.id === selectedProjectId)] : filtered); 
+                myChart.data.labels = d.labels; 
+                myChart.data.datasets[0].data = d.datasets[0].data; 
+                myChart.data.datasets[1].data = d.datasets[1].data; 
+                myChart.update(); 
+            } 
+            
+            // Verifica se algum filtro global (texto, KPI ou cliente) está ativo para mostrar o "Limpar Filtros" principal
+            const isTextFiltered = term.length > 0;
+            const isKpiFiltered = currentFilter !== 'all';
+            const isAnyFilterActive = selectedProjectId || isTextFiltered || isKpiFiltered;
+            
+            const clearBtn = document.getElementById('clear-selection-btn');
+            if (isAnyFilterActive) {
+                clearBtn.classList.remove('hidden');
+                clearBtn.classList.add('flex');
+            } else {
+                clearBtn.classList.add('hidden');
+                clearBtn.classList.remove('flex');
+            }
+        }
+
+        document.getElementById('searchInput').addEventListener('input', applyFilters);
+    </script>
+</body>
+</html>
